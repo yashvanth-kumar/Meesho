@@ -1,0 +1,399 @@
+import React, { useState, useMemo, useRef } from "react";
+import { Sparkles, TrendingUp, Upload, Copy, Check, IndianRupee, PackageSearch, Flame, AlertTriangle, ChevronRight, Plus, Trash2, Download, Image as ImageIcon, Truck, Wand2, Ruler } from "lucide-react";
+
+// ---------- Design tokens ----------
+// Marigold #E8963F | Maroon #7A2E3A | Ivory #FBF4E8 | Brass #C9A15C | Teal #1F5C52 | Ink #2A2019
+
+const CATEGORY_TEMPLATES = {
+  jewellery: {
+    label: "Artificial Jewellery",
+    adjectives: ["Traditional", "Antique", "Oxidised", "Kundan", "Meenakari", "Temple-Style", "Contemporary", "Party Wear", "Bridal", "Everyday"],
+    materials: ["Alloy", "Brass", "Copper Oxidised", "Pearl", "Kundan Stone", "Terracotta"],
+    occasions: ["Wedding", "Festive", "Daily Wear", "Office Wear", "Party", "Navratri Special"],
+    baseTags: ["jewellery", "earrings", "necklace set", "traditional jewellery", "artificial jewellery", "fashion jewellery", "ethnic wear", "combo set", "gift for her", "bridal jewellery", "oxidised jewellery", "indian jewellery", "jhumka", "trending jewellery"],
+    weightGrams: 60,
+  },
+  homekitchen: {
+    label: "Home & Kitchen",
+    adjectives: ["Multipurpose", "Space-Saving", "Heavy Duty", "Premium", "Unbreakable", "Airtight", "Non-Stick", "Stainless Steel", "Foldable", "Set of"],
+    materials: ["Stainless Steel", "Plastic (BPA Free)", "Silicone", "Glass", "Steel & Plastic"],
+    occasions: ["Kitchen Storage", "Daily Use", "Gifting", "Home Organisation", "Festive Use"],
+    baseTags: ["kitchen tools", "home organiser", "storage container", "kitchen essential", "home decor", "utility", "gift item", "space saver", "kitchen set", "home needs", "storage box", "trending kitchen items"],
+    weightGrams: 350,
+  },
+};
+
+// SEO-style tag engine: mixes category tags, product-specific terms, and buyer-intent search phrases
+function generateTags(name, category, details) {
+  const t = CATEGORY_TEMPLATES[category];
+  const nameWords = name.toLowerCase().split(/\s+/).filter((w) => w.length > 2);
+  const buyerIntent = category === "jewellery"
+    ? ["under 299", "for saree", "for wedding", "new design 2026", "combo offer"]
+    : ["for kitchen", "best quality", "gift set", "new design", "combo offer"];
+
+  const tagSet = new Set([
+    ...nameWords,
+    name.toLowerCase(),
+    ...t.baseTags,
+    details.color ? `${details.color.toLowerCase()} ${category === "jewellery" ? "jewellery" : "kitchen item"}` : null,
+    details.material ? details.material.toLowerCase() : null,
+    ...buyerIntent.map((b) => `${nameWords[0] || t.label.toLowerCase()} ${b}`),
+  ].filter(Boolean));
+
+  return Array.from(tagSet).slice(0, 13);
+}
+
+function genListing(name, category, details, seedOffset = 0) {
+  const t = CATEGORY_TEMPLATES[category];
+  const adj = t.adjectives[(details.seed + seedOffset) % t.adjectives.length];
+  const material = details.material || t.materials[(details.seed + seedOffset) % t.materials.length];
+  const occasion = t.occasions[(details.seed + seedOffset) % t.occasions.length];
+
+  const title = `${adj} ${name}${details.color ? " - " + details.color : ""} | ${material} | ${occasion} | ${details.qty ? "Pack of " + details.qty : "Pack of 1"}`.slice(0, 100);
+
+  const dims = details.length && details.breadth
+    ? `Size: ${details.length} x ${details.breadth}${details.height ? " x " + details.height : ""} cm (as entered by seller)`
+    : null;
+
+  const bullets = [
+    `Material: ${material}${details.color ? `, Colour: ${details.color}` : ""}`,
+    `Best for: ${occasion}${details.size ? `, Size: ${details.size}` : ""}`,
+    dims,
+    `${details.qty ? `Set includes ${details.qty} piece(s) — great value combo` : "Sold as single piece, ready to ship"}`,
+    category === "jewellery"
+      ? "Lightweight and skin-friendly, comfortable for all-day wear"
+      : "Sturdy build, easy to clean, safe for everyday kitchen use",
+    "Carefully packed to avoid damage during transit",
+  ].filter(Boolean);
+
+  const tags = generateTags(name, category, details);
+
+  return { title, description: bullets.map((b) => "- " + b).join("\n"), tags: tags.join(", "), material, occasion };
+}
+
+function CopyBtn({ text, small }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      onClick={() => {
+        navigator.clipboard.writeText(text);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1400);
+      }}
+      className={`inline-flex items-center gap-1.5 rounded-full border transition-colors ${small ? "px-2.5 py-1 text-xs" : "px-3.5 py-1.5 text-sm"} ${copied ? "bg-[#1F5C52] border-[#1F5C52] text-[#FBF4E8]" : "bg-transparent border-[#C9A15C]/50 text-[#7A2E3A] hover:bg-[#C9A15C]/10"}`}
+    >
+      {copied ? <Check size={small ? 12 : 14} /> : <Copy size={small ? 12 : 14} />}
+      {copied ? "Copied" : "Copy"}
+    </button>
+  );
+}
+
+// ---------- Photo variant generation (real canvas processing on the user's own photo) ----------
+const VARIANT_STYLES = [
+  { key: "clean", label: "Clean Crop", desc: "Tightly cropped, centered, subtle shadow" },
+  { key: "warm", label: "Warm Backdrop", desc: "Soft warm-toned frame, festive feel" },
+  { key: "soft", label: "Soft Studio", desc: "Muted vignette, softened edges" },
+];
+
+function applyVariant(img, canvas, style) {
+  const ctx = canvas.getContext("2d");
+  const size = 600;
+  canvas.width = size;
+  canvas.height = size;
+  ctx.clearRect(0, 0, size, size);
+
+  if (style === "clean") {
+    ctx.fillStyle = "#F7F1E4";
+    ctx.fillRect(0, 0, size, size);
+    const scale = Math.min((size * 0.72) / img.width, (size * 0.72) / img.height);
+    const w = img.width * scale, h = img.height * scale;
+    ctx.save();
+    ctx.shadowColor = "rgba(0,0,0,0.25)";
+    ctx.shadowBlur = 25;
+    ctx.shadowOffsetY = 12;
+    ctx.drawImage(img, (size - w) / 2, (size - h) / 2, w, h);
+    ctx.restore();
+  } else if (style === "warm") {
+    const grad = ctx.createLinearGradient(0, 0, size, size);
+    grad.addColorStop(0, "#F3E0B8");
+    grad.addColorStop(1, "#D9A86A");
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, size, size);
+    ctx.strokeStyle = "rgba(122,46,58,0.35)";
+    ctx.lineWidth = 10;
+    ctx.strokeRect(20, 20, size - 40, size - 40);
+    const scale = Math.min((size * 0.62) / img.width, (size * 0.62) / img.height);
+    const w = img.width * scale, h = img.height * scale;
+    ctx.save();
+    ctx.shadowColor = "rgba(90,40,20,0.3)";
+    ctx.shadowBlur = 30;
+    ctx.drawImage(img, (size - w) / 2, (size - h) / 2, w, h);
+    ctx.restore();
+  } else if (style === "soft") {
+    const grad = ctx.createRadialGradient(size / 2, size / 2, size * 0.1, size / 2, size / 2, size * 0.7);
+    grad.addColorStop(0, "#FFFFFF");
+    grad.addColorStop(1, "#E7DCC4");
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, size, size);
+    const scale = Math.min((size * 0.7) / img.width, (size * 0.7) / img.height);
+    const w = img.width * scale, h = img.height * scale;
+    ctx.filter = "saturate(1.05) contrast(1.02)";
+    ctx.drawImage(img, (size - w) / 2, (size - h) / 2, w, h);
+    ctx.filter = "none";
+    ctx.save();
+    ctx.globalCompositeOperation = "multiply";
+    const vgrad = ctx.createRadialGradient(size / 2, size / 2, size * 0.35, size / 2, size / 2, size * 0.71);
+    vgrad.addColorStop(0, "rgba(255,255,255,1)");
+    vgrad.addColorStop(1, "rgba(220,210,190,0.85)");
+    ctx.fillStyle = vgrad;
+    ctx.fillRect(0, 0, size, size);
+    ctx.restore();
+  }
+}
+
+function PhotoVariantMaker({ onVariantsReady }) {
+  const [srcImg, setSrcImg] = useState(null);
+  const [variants, setVariants] = useState([]);
+  const [chosen, setChosen] = useState(0);
+  const canvasRefs = useRef([]);
+
+  const handleUpload = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const img = new Image();
+    img.onload = () => {
+      setSrcImg(img);
+      setTimeout(() => {
+        const results = VARIANT_STYLES.map((v, i) => {
+          const canvas = canvasRefs.current[i];
+          if (canvas) applyVariant(img, canvas, v.key);
+          return canvas ? canvas.toDataURL("image/jpeg", 0.9) : null;
+        });
+        setVariants(results);
+        setChosen(0);
+        onVariantsReady && onVariantsReady(results[0]);
+      }, 50);
+    };
+    img.src = URL.createObjectURL(file);
+  };
+
+  return (
+    <div className="space-y-3">
+      <label className="flex items-center justify-center gap-2 rounded-xl border-2 border-dashed border-[#C9A15C]/50 py-6 cursor-pointer hover:bg-[#C9A15C]/5 transition-colors">
+        <Upload size={16} className="text-[#7A2E3A]" />
+        <span className="text-sm text-[#5A4632]">{srcImg ? "Replace photo" : "Upload your product photo"}</span>
+        <input type="file" accept="image/*" className="hidden" onChange={handleUpload} />
+      </label>
+
+      {srcImg && (
+        <div>
+          <p className="text-xs font-semibold text-[#7A2E3A] uppercase tracking-wide mb-2">Pick the best variant</p>
+          <div className="grid grid-cols-3 gap-2">
+            {VARIANT_STYLES.map((v, i) => (
+              <button
+                key={v.key}
+                onClick={() => {
+                  setChosen(i);
+                  onVariantsReady && onVariantsReady(variants[i]);
+                }}
+                className={`rounded-lg overflow-hidden border-2 transition-all ${chosen === i ? "border-[#E8963F] ring-2 ring-[#E8963F]/40" : "border-transparent opacity-80 hover:opacity-100"}`}
+              >
+                {variants[i] && <img src={variants[i]} alt={v.label} className="w-full aspect-square object-cover" />}
+                <p className="text-[10px] text-center py-1 bg-white text-[#5A4632] font-medium">{v.label}</p>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="hidden">
+        {VARIANT_STYLES.map((v, i) => (
+          <canvas key={v.key} ref={(el) => (canvasRefs.current[i] = el)} />
+        ))}
+      </div>
+
+      <div className="rounded-lg bg-[#1F5C52]/10 border border-[#1F5C52]/25 p-3 flex gap-2 items-start">
+        <Wand2 size={14} className="text-[#1F5C52] mt-0.5 shrink-0" />
+        <p className="text-[11px] text-[#1F5C52] leading-relaxed">
+          These 3 versions are real styling of your own photo (crop, backdrop, lighting) — not AI-generated scenes.
+          Full AI-generated lifestyle photos aren't available in this tool yet — see "What's Next".
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ---------- Shipping calculator ----------
+const MEESHO_SHIPPING_SLABS = [
+  { max: 500, label: "Up to 500g", rate: 45 },
+  { max: 1000, label: "500g - 1kg", rate: 62 },
+  { max: 2000, label: "1kg - 2kg", rate: 85 },
+  { max: 5000, label: "2kg - 5kg", rate: 130 },
+];
+
+function estimateShipping(weightGrams) {
+  return MEESHO_SHIPPING_SLABS.find((s) => weightGrams <= s.max) || MEESHO_SHIPPING_SLABS[MEESHO_SHIPPING_SLABS.length - 1];
+}
+
+// ---------- Multi-product bulk builder ----------
+let productIdSeed = 1;
+function emptyProduct(category = "jewellery") {
+  return {
+    id: productIdSeed++,
+    name: "",
+    category,
+    color: "",
+    material: "",
+    qty: "",
+    size: "",
+    length: "",
+    breadth: "",
+    height: "",
+    cost: 100,
+    weight: CATEGORY_TEMPLATES[category].weightGrams,
+    competitorPrice: 299,
+    marginPct: 20,
+    photo: null,
+    seed: Math.floor(Math.random() * 1000),
+  };
+}
+
+function BulkBuilder() {
+  const [products, setProducts] = useState([emptyProduct("jewellery")]);
+  const [generated, setGenerated] = useState(false);
+  const [commissionPct] = useState(12);
+
+  const update = (id, patch) => setProducts((ps) => ps.map((p) => (p.id === id ? { ...p, ...patch } : p)));
+  const addProduct = () => setProducts((ps) => [...ps, emptyProduct("jewellery")]);
+  const removeProduct = (id) => setProducts((ps) => ps.filter((p) => p.id !== id));
+
+  const results = useMemo(() => {
+    return products
+      .filter((p) => p.name.trim())
+      .map((p) => {
+        const listing = genListing(p.name, p.category, p);
+        const shipSlab = estimateShipping(Number(p.weight) || 100);
+        const denom = 1 - commissionPct / 100 - Number(p.marginPct) / 100;
+        const suggestedPrice = denom > 0 ? (Number(p.cost) + shipSlab.rate) / denom : 0;
+        const vsCompetitor = suggestedPrice - Number(p.competitorPrice);
+        return { ...p, ...listing, shipSlab, suggestedPrice, vsCompetitor };
+      });
+  }, [products, commissionPct]);
+
+  const generateAll = () => setGenerated(true);
+
+  const downloadExcel = () => {
+    const headers = ["Product Name", "Category", "Title", "Description", "Tags (SEO)", "Colour", "Material", "Dimensions (L x B x H cm)", "Suggested Price (Rs)", "Cost (Rs)", "Est. Shipping (Rs)", "Weight Slab", "Competitor Price (Rs)", "Price vs Competitor"];
+    const rows = results.map((r) => [
+      r.name, CATEGORY_TEMPLATES[r.category].label, r.title, r.description.replace(/\n/g, " | "), r.tags,
+      r.color || "-", r.material, (r.length && r.breadth) ? `${r.length} x ${r.breadth}${r.height ? " x " + r.height : ""}` : "-",
+      r.suggestedPrice.toFixed(0), r.cost, r.shipSlab.rate, r.shipSlab.label,
+      r.competitorPrice, r.vsCompetitor > 0 ? `+Rs${r.vsCompetitor.toFixed(0)} higher` : `Rs${Math.abs(r.vsCompetitor).toFixed(0)} lower`,
+    ]);
+    const csvContent = [headers, ...rows]
+      .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(","))
+      .join("\n");
+    const blob = new Blob(["\uFEFF" + csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "meesho-bulk-catalogue.csv";
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <div className="space-y-5">
+      <div className="rounded-2xl bg-[#7A2E3A] text-[#FBF4E8] p-4 flex items-center justify-between flex-wrap gap-3">
+        <div>
+          <p className="text-sm font-semibold">Add all your products, then generate everything in one click</p>
+          <p className="text-xs opacity-80 mt-0.5">Titles, SEO tags, description, price, dimensions and shipping — one row per product.</p>
+        </div>
+        <div className="flex gap-2">
+          <button onClick={generateAll} className="inline-flex items-center gap-2 rounded-xl bg-[#E8963F] text-[#2A2019] font-semibold px-4 py-2 text-sm hover:bg-[#d6832b]">
+            <Sparkles size={15} /> Generate all
+          </button>
+          {generated && (
+            <button onClick={downloadExcel} className="inline-flex items-center gap-2 rounded-xl bg-[#1F5C52] text-[#FBF4E8] font-semibold px-4 py-2 text-sm hover:bg-[#184940]">
+              <Download size={15} /> Download sheet
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div className="space-y-4">
+        {products.map((p, idx) => (
+          <div key={p.id} className="rounded-2xl bg-white/70 border border-[#C9A15C]/30 p-4">
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-sm font-semibold text-[#7A2E3A]">Product {idx + 1}</p>
+              {products.length > 1 && (
+                <button onClick={() => removeProduct(p.id)} className="text-[#7A2E3A]/60 hover:text-[#7A2E3A]">
+                  <Trash2 size={15} />
+                </button>
+              )}
+            </div>
+            <div className="grid md:grid-cols-[1.3fr_1fr] gap-4">
+              <div className="space-y-3">
+                <div className="flex gap-2">
+                  {Object.entries(CATEGORY_TEMPLATES).map(([key, t]) => (
+                    <button
+                      key={key}
+                      onClick={() => update(p.id, { category: key, weight: t.weightGrams })}
+                      className={`flex-1 rounded-lg py-1.5 text-xs font-medium border transition-colors ${p.category === key ? "bg-[#7A2E3A] text-[#FBF4E8] border-[#7A2E3A]" : "bg-transparent border-[#C9A15C]/40 text-[#5A4632]"}`}
+                    >
+                      {t.label}
+                    </button>
+                  ))}
+                </div>
+                <input placeholder="Product name e.g. Oxidised Jhumka Earrings" value={p.name} onChange={(e) => update(p.id, { name: e.target.value })} className="w-full rounded-lg border border-[#C9A15C]/40 bg-[#FBF4E8] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8963F]" />
+                <div className="grid grid-cols-2 gap-2">
+                  <input placeholder="Colour" value={p.color} onChange={(e) => update(p.id, { color: e.target.value })} className="rounded-lg border border-[#C9A15C]/40 bg-[#FBF4E8] px-3 py-2 text-xs" />
+                  <input placeholder="Pack qty" value={p.qty} onChange={(e) => update(p.id, { qty: e.target.value })} className="rounded-lg border border-[#C9A15C]/40 bg-[#FBF4E8] px-3 py-2 text-xs" />
+                </div>
+
+                <div>
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <Ruler size={11} className="text-[#7A2E3A]" />
+                    <label className="text-[10px] font-semibold text-[#7A2E3A] uppercase tracking-wide">Actual size (you measure — can't be auto-detected from photo)</label>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    <input placeholder="Length cm" value={p.length} onChange={(e) => update(p.id, { length: e.target.value })} className="rounded-lg border border-[#C9A15C]/40 bg-[#FBF4E8] px-2 py-1.5 text-xs" />
+                    <input placeholder="Breadth cm" value={p.breadth} onChange={(e) => update(p.id, { breadth: e.target.value })} className="rounded-lg border border-[#C9A15C]/40 bg-[#FBF4E8] px-2 py-1.5 text-xs" />
+                    <input placeholder="Height cm" value={p.height} onChange={(e) => update(p.id, { height: e.target.value })} className="rounded-lg border border-[#C9A15C]/40 bg-[#FBF4E8] px-2 py-1.5 text-xs" />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2">
+                  <div>
+                    <label className="text-[10px] text-[#5A4632]">Cost ₹</label>
+                    <input type="number" value={p.cost} onChange={(e) => update(p.id, { cost: e.target.value })} className="w-full rounded-lg border border-[#C9A15C]/40 bg-[#FBF4E8] px-2 py-1.5 text-xs" />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-[#5A4632]">Weight (g)</label>
+                    <input type="number" value={p.weight} onChange={(e) => update(p.id, { weight: e.target.value })} className="w-full rounded-lg border border-[#C9A15C]/40 bg-[#FBF4E8] px-2 py-1.5 text-xs" />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-[#5A4632]">Margin %</label>
+                    <input type="number" value={p.marginPct} onChange={(e) => update(p.id, { marginPct: e.target.value })} className="w-full rounded-lg border border-[#C9A15C]/40 bg-[#FBF4E8] px-2 py-1.5 text-xs" />
+                  </div>
+                </div>
+                <div>
+                  <label className="text-[10px] text-[#5A4632]">Competitor price ₹</label>
+                  <input type="number" value={p.competitorPrice} onChange={(e) => update(p.id, { competitorPrice: e.target.value })} className="w-full rounded-lg border border-[#C9A15C]/40 bg-[#FBF4E8] px-2 py-1.5 text-xs" />
+                </div>
+              </div>
+              <PhotoVariantMaker onVariantsReady={(dataUrl) => update(p.id, { photo: dataUrl })} />
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <button onClick={addProduct} className="w-full rounded-xl border-2 border-dashed border-[#C9A15C]/50 py-3 text-sm font-medium text-[#7A2E3A] hover:bg-[#C9A15C]/5 flex items-center justify-center gap-2">
+        <Plus size={16} /> Add another product
+      </button>
+
+      {generated && results.length > 0 && (
+        <div className="space-y-3">
+          <p className="text-sm font-semibold text-[#7A2E3A]">Generated catalogue preview</p>
+          {results.map((r, i) => (
+
