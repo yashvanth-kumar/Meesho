@@ -1,5 +1,10 @@
-import React, { useState, useMemo, useRef } from "react";
-import { Sparkles, TrendingUp, Upload, Copy, Check, IndianRupee, PackageSearch, Flame, AlertTriangle, ChevronRight, Plus, Trash2, Download, Image as ImageIcon, Truck, Wand2, Ruler, Target, LineChart, Megaphone, Star } from "lucide-react";
+import React, { useState, useMemo, useRef, useEffect, createContext, useContext } from "react";
+import { Sparkles, TrendingUp, Upload, Copy, Check, IndianRupee, PackageSearch, Flame, AlertTriangle, ChevronRight, Plus, Trash2, Download, Image as ImageIcon, Truck, Wand2, Ruler, Target, LineChart as LineChartIcon, Megaphone, Star, MessageCircle, Send, X, BarChart3 } from "lucide-react";
+import { BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
+
+// ---------- Shared data store so Charts + Chat Assistant can see data from other tabs ----------
+const StoreContext = createContext(null);
+const useStore = () => useContext(StoreContext);
 
 // ---------- Design tokens ----------
 // Marigold #E8963F | Maroon #7A2E3A | Ivory #FBF4E8 | Brass #C9A15C | Teal #1F5C52 | Ink #2A2019
@@ -492,6 +497,12 @@ function SalesAnalyzer() {
     return { withRate, topSelling, highestReturn, totalUnits, totalReturns, avgReturnRate };
   }, [data]);
 
+  const store = useStore();
+  useEffect(() => {
+    store?.setSalesData(analysis);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [analysis]);
+
   return (
     <div className="space-y-5">
       <div className="rounded-2xl bg-white/70 border border-[#C9A15C]/30 p-5">
@@ -725,7 +736,7 @@ function CompetitorTracker() {
   return (
     <div className="space-y-5">
       <div className="rounded-2xl bg-[#1F5C52] text-[#FBF4E8] p-4">
-        <p className="text-sm font-semibold flex items-center gap-2"><LineChart size={16} /> Log competitor prices over time</p>
+        <p className="text-sm font-semibold flex items-center gap-2"><LineChartIcon size={16} /> Log competitor prices over time</p>
         <p className="text-xs opacity-85 mt-1 leading-relaxed">I can't monitor competitors 24/7 in the background — I only work when you're chatting with me. Log prices here whenever you check, and patterns build up over time. Ask me to fetch a specific competitor listing's current price anytime and I'll add it live.</p>
       </div>
 
@@ -804,6 +815,12 @@ function ProfitDashboard() {
   }, [rows]);
 
   const totalProfit = analyzed.reduce((s, r) => s + r.totalProfit, 0);
+
+  const store = useStore();
+  useEffect(() => {
+    store?.setProfitData({ rows: analyzed, totalProfit });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows]);
 
   return (
     <div className="space-y-5">
@@ -913,6 +930,178 @@ function AdPlanner() {
   );
 }
 
+// ---------- Charts tab ----------
+const CHART_COLORS = ["#7A2E3A", "#E8963F", "#1F5C52", "#C9A15C", "#B5543E"];
+
+function ChartsTab() {
+  const store = useStore();
+  const sales = store?.salesData;
+  const profit = store?.profitData;
+
+  const hasSales = sales && sales.withRate && sales.withRate.length > 0;
+  const hasProfit = profit && profit.rows && profit.rows.length > 0;
+
+  if (!hasSales && !hasProfit) {
+    return (
+      <div className="rounded-2xl bg-white border border-[#C9A15C]/30 p-8 text-center">
+        <BarChart3 size={32} className="text-[#C9A15C] mx-auto mb-3" />
+        <p className="text-sm font-medium text-[#2A2019]">No data to chart yet</p>
+        <p className="text-xs text-[#5A4632]/70 mt-1">Add products in the Profit Dashboard or upload a CSV in Sales Analyzer — charts will appear here automatically.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      {hasSales && (
+        <div className="rounded-2xl bg-white border border-[#C9A15C]/30 p-5">
+          <p className="text-sm font-semibold text-[#7A2E3A] mb-4">Units sold vs returns by product</p>
+          <ResponsiveContainer width="100%" height={280}>
+            <BarChart data={sales.withRate}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#C9A15C33" />
+              <XAxis dataKey="product" tick={{ fontSize: 10, fill: "#5A4632" }} angle={-20} textAnchor="end" height={70} />
+              <YAxis tick={{ fontSize: 11, fill: "#5A4632" }} />
+              <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8 }} />
+              <Legend wrapperStyle={{ fontSize: 12 }} />
+              <Bar dataKey="units" name="Units sold" fill="#1F5C52" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="returns" name="Returns" fill="#B5543E" radius={[4, 4, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+
+      {hasSales && (
+        <div className="rounded-2xl bg-white border border-[#C9A15C]/30 p-5">
+          <p className="text-sm font-semibold text-[#7A2E3A] mb-4">Return rate by product (%)</p>
+          <ResponsiveContainer width="100%" height={260}>
+            <PieChart>
+              <Pie data={sales.withRate} dataKey="returnRate" nameKey="product" cx="50%" cy="50%" outerRadius={90} label={{ fontSize: 10 }}>
+                {sales.withRate.map((_, i) => (
+                  <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
+                ))}
+              </Pie>
+              <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8 }} formatter={(v) => v.toFixed(1) + "%"} />
+            </PieChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+
+      {hasProfit && (
+        <div className="rounded-2xl bg-white border border-[#C9A15C]/30 p-5">
+          <p className="text-sm font-semibold text-[#7A2E3A] mb-4">Profit per product (₹)</p>
+          <ResponsiveContainer width="100%" height={280}>
+            <BarChart data={profit.rows} layout="vertical">
+              <CartesianGrid strokeDasharray="3 3" stroke="#C9A15C33" />
+              <XAxis type="number" tick={{ fontSize: 11, fill: "#5A4632" }} />
+              <YAxis type="category" dataKey="product" tick={{ fontSize: 10, fill: "#5A4632" }} width={140} />
+              <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8 }} />
+              <Bar dataKey="totalProfit" name="Total profit" fill="#E8963F" radius={[0, 4, 4, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------- Chat Assistant (rule-based, reads live data from other tabs) ----------
+function answerQuestion(question, store) {
+  const q = question.toLowerCase();
+  const sales = store?.salesData;
+  const profit = store?.profitData;
+
+  if (/top.*sell|best.*sell|bestseller/.test(q)) {
+    if (sales?.topSelling?.length) {
+      const top = sales.topSelling[0];
+      return `Your top seller in the Sales Analyzer is "${top.product}" with ${top.units} units sold. Consider restocking it and increasing ad spend on it.`;
+    }
+    return `I don't see sales data yet — add your numbers in the Sales Analyzer tab (upload a CSV) and I'll tell you your top seller instantly.`;
+  }
+
+  if (/return/.test(q)) {
+    if (sales?.highestReturn?.length) {
+      const top = sales.highestReturn[0];
+      return `"${top.product}" has your highest return rate at ${top.returnRate.toFixed(0)}%. Check if the listing photos and description match what you're actually shipping — mismatched expectations are the most common cause.`;
+    }
+    return `Add data in Sales Analyzer and I'll flag your highest-return product automatically.`;
+  }
+
+  if (/profit|margin|money/.test(q)) {
+    if (profit?.rows?.length) {
+      const top = profit.rows[0];
+      return `Your most profitable product right now is "${top.product}" earning about ₹${top.totalProfit.toFixed(0)} total. Your overall profit across tracked products is ₹${profit.totalProfit.toFixed(0)}.`;
+    }
+    return `Add your products in the Profit Dashboard tab with cost/price/units and I'll tell you which one makes the most money.`;
+  }
+
+  if (/price|pricing/.test(q)) {
+    return `Head to the Bulk Catalogue Builder — enter your cost, weight, and target margin per product, and it calculates a suggested selling price automatically, compared against your competitor's price.`;
+  }
+
+  if (/ad|advertis|promot/.test(q)) {
+    return `Use the Ad Planner tab — enter your daily budget, CPC, and conversion rate, and it tells you estimated orders and whether that spend is actually profitable before you commit budget.`;
+  }
+
+  if (/trend|what.*sell|new product/.test(q)) {
+    return `Check the Trending Picks tab for category direction, and use the Niche Picker to score your own product ideas by margin, competition, and uniqueness before you commit to stocking them.`;
+  }
+
+  return `I can answer questions about your top sellers, highest returns, profit, pricing, ads, or trending picks — try asking something like "what's my highest return product" or "which product makes the most profit".`;
+}
+
+function ChatAssistant() {
+  const store = useStore();
+  const [open, setOpen] = useState(false);
+  const [messages, setMessages] = useState([
+    { role: "bot", text: "Hi! Ask me about your top sellers, returns, profit, or pricing — I'll pull answers from your data in this toolkit." },
+  ]);
+  const [input, setInput] = useState("");
+
+  const send = () => {
+    if (!input.trim()) return;
+    const userMsg = { role: "user", text: input };
+    const botMsg = { role: "bot", text: answerQuestion(input, store) };
+    setMessages((m) => [...m, userMsg, botMsg]);
+    setInput("");
+  };
+
+  return (
+    <>
+      {open && (
+        <div className="fixed bottom-20 right-4 w-[90vw] max-w-sm h-[60vh] bg-white rounded-2xl border border-[#C9A15C]/40 shadow-2xl flex flex-col z-30 overflow-hidden">
+          <div className="bg-[#7A2E3A] text-[#FBF4E8] px-4 py-3 flex items-center justify-between shrink-0">
+            <p className="text-sm font-semibold flex items-center gap-2"><MessageCircle size={16} /> Toolkit Assistant</p>
+            <button onClick={() => setOpen(false)}><X size={16} /></button>
+          </div>
+          <div className="flex-1 overflow-y-auto p-3 space-y-2 bg-[#FBF4E8]">
+            {messages.map((m, i) => (
+              <div key={i} className={`text-sm rounded-xl px-3 py-2 max-w-[85%] ${m.role === "user" ? "bg-[#E8963F] text-[#2A2019] ml-auto" : "bg-white border border-[#C9A15C]/30 text-[#2A2019]"}`}>
+                {m.text}
+              </div>
+            ))}
+          </div>
+          <div className="p-2 border-t border-[#C9A15C]/30 flex gap-2 shrink-0">
+            <input
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && send()}
+              placeholder="Ask about your sales, profit..."
+              className="flex-1 rounded-lg border border-[#C9A15C]/40 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8963F]"
+            />
+            <button onClick={send} className="rounded-lg bg-[#1F5C52] text-white px-3"><Send size={15} /></button>
+          </div>
+        </div>
+      )}
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="fixed bottom-5 right-4 w-12 h-12 rounded-full bg-[#7A2E3A] text-[#FBF4E8] shadow-xl flex items-center justify-center z-30 hover:bg-[#6a2732]"
+      >
+        {open ? <X size={20} /> : <MessageCircle size={20} />}
+      </button>
+    </>
+  );
+}
+
 // ---------- Roadmap ----------
 const ROADMAP = [
   { title: "Full AI-generated lifestyle photos", desc: "Auto-create styled scene photos (not just backdrop treatments) once image generation is connected." },
@@ -942,14 +1131,15 @@ function Roadmap() {
 }
 
 // ---------- Main App ----------
-export default function App() {
+function AppInner() {
   const [tab, setTab] = useState("bulk");
 
   const tabs = [
     { id: "bulk", label: "Bulk Catalogue Builder", icon: Sparkles },
     { id: "niche", label: "Niche Picker", icon: Target },
-    { id: "competitor", label: "Competitor Tracker", icon: LineChart },
+    { id: "competitor", label: "Competitor Tracker", icon: LineChartIcon },
     { id: "profit", label: "Profit Dashboard", icon: IndianRupee },
+    { id: "charts", label: "Charts", icon: BarChart3 },
     { id: "ads", label: "Ad Planner", icon: Megaphone },
     { id: "analyzer", label: "Sales Analyzer", icon: PackageSearch },
     { id: "trending", label: "Trending Picks", icon: TrendingUp },
@@ -989,11 +1179,12 @@ export default function App() {
         </div>
       </nav>
 
-      <main className="max-w-5xl mx-auto px-5 py-6">
+      <main className="max-w-5xl mx-auto px-5 py-6 pb-24">
         {tab === "bulk" && <BulkBuilder />}
         {tab === "niche" && <NichePicker />}
         {tab === "competitor" && <CompetitorTracker />}
         {tab === "profit" && <ProfitDashboard />}
+        {tab === "charts" && <ChartsTab />}
         {tab === "ads" && <AdPlanner />}
         {tab === "analyzer" && <SalesAnalyzer />}
         {tab === "trending" && <Trending />}
@@ -1003,6 +1194,19 @@ export default function App() {
       <footer className="max-w-5xl mx-auto px-5 pb-8 pt-4 text-center">
         <p className="text-[11px] text-[#5A4632]/50">Built for manual use — copy content into Meesho's Supplier Panel yourself to stay within their seller policies.</p>
       </footer>
+
+      <ChatAssistant />
     </div>
+  );
+}
+
+export default function App() {
+  const [salesData, setSalesData] = useState(null);
+  const [profitData, setProfitData] = useState(null);
+
+  return (
+    <StoreContext.Provider value={{ salesData, setSalesData, profitData, setProfitData }}>
+      <AppInner />
+    </StoreContext.Provider>
   );
 }
